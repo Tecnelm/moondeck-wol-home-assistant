@@ -15,6 +15,7 @@ add_plugin_to_path()
 
 import asyncio
 import pathlib
+import aiohttp
 import python.lib.hostinfo as hostinfo
 import python.lib.constants as constants
 import python.lib.utils as utils
@@ -132,11 +133,70 @@ class Plugin:
 
         except Exception:
             logger.exception("Unhandled exception")
-
+            
+    @utils.async_scope_log(logger.info)
+    async def call_home_assistant_script_async(self,host_url, token, script_id, payload=None, timeout=300):
+        """
+        Call a script on Home Assistant server asynchronously using aiohttp
+        
+        Parameters:
+        host_url (str): The URL of your Home Assistant instance
+        token (str): Long-lived access token for Home Assistant
+        script_id (str): The ID of the script to call
+        payload (dict, optional): Additional data to send with the request
+        timeout (int, optional): Timeout in seconds for the request (default: 300)
+        
+        Returns:
+        dict: Response from Home Assistant API or None if error
+        """
+        # Ensure the URL has the correct format
+        if not host_url.endswith('/'):
+            host_url += '/'
+        
+        # Create the URL for the script service
+        url = f"{host_url}api/services/script/{script_id}"
+        
+        # Set up the headers with authentication
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Make the async request to Home Assistant using aiohttp
+        try:
+            timeout_obj = aiohttp.ClientTimeout(total=timeout)
+            async with aiohttp.ClientSession(timeout=timeout_obj) as session:
+                async with session.post(
+                    url, 
+                    headers=headers, 
+                    json=payload if payload else {},
+                    ssl=False
+                ) as response:
+                    if response.status >= 400:
+                        logger.info(f"Error: HTTP {response.status} - {response.reason}")
+                        return None
+                    return await response.json()
+        except asyncio.TimeoutError:
+            logger.info(f"Request timed out after {timeout} seconds. The script may still be running on Home Assistant.")
+            return {"status": "unknown", "message": "Request timed out but script execution may have started"}
+        except aiohttp.ClientError as e:
+            logger.info(f"Error calling Home Assistant script: {e}")
+            return None
+    
+    
     @utils.async_scope_log(logger.info)
     async def wake_on_lan(self, address: str, mac: str):
         try:
-            wake_on_lan(address, mac)
+            home_assistant_url = "<Home Assistant URL>"
+            long_lived_token = "<Your Long-Lived Token>"
+            script_name = "<Your Script Name>"
+            await self.call_home_assistant_script_async(
+                home_assistant_url, 
+                long_lived_token, 
+                script_name, 
+                {},
+                timeout=60  # Increase the timeout if needed
+            )
         except Exception:
             logger.exception("Unhandled exception")
 
